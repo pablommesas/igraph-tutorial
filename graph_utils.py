@@ -79,3 +79,31 @@ def string_tie_graph_to_dataframe(file, output_dir = None):
         edge_set_df.to_csv(os.path.join(output_dir, 'splice_graph.edges'), sep='\t', header=True, index=False)
 
     return node_set_df, edge_set_df
+
+
+def old_layout_splice_graph(g):
+    
+    # get `tree` layout
+    layout = g.layout("tree")
+    y_coord = max([ss[1] for ss in layout])
+    # center tank
+    layout[-1][0] = 0
+
+    # exclude: 'sink', 'tank' nodes
+    min_coord = min(g.vs['start'][1:-1])
+    max_coord = max(g.vs['start'][1:-1])
+    length = max_coord - min_coord + 1
+    shift = (2 * length) / len(node_set_df)
+
+    scaled_genomic_coords = g.vs['start']
+    # modify: 'sink', 'tank' nodes
+    scaled_genomic_coords[0] = min_coord - shift
+    scaled_genomic_coords[-1] = max_coord + shift
+    
+    # transform to: [0, 1] interval
+    scale_coords = colors.Normalize(vmin=min(scaled_genomic_coords),vmax=max(scaled_genomic_coords))
+    scaled_genomic_coords = scale_coords(scaled_genomic_coords) * y_coord
+
+    splice_graph_layout = [[ll[0], scaled_genomic_coords[ii], ] for ii, ll in enumerate(layout)]
+    
+    return splice_graph_layout
