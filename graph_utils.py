@@ -3,6 +3,9 @@ import numpy as np
 import pandas as pd
 import igraph
 
+from matplotlib import cm
+from matplotlib import colors
+
 def string_tie_graph_to_dataframe(file, output_dir = None):
 
     # open the file in Read mode
@@ -81,7 +84,114 @@ def string_tie_graph_to_dataframe(file, output_dir = None):
     return node_set_df, edge_set_df
 
 
-def old_layout_splice_graph(g):
+def layout_splice_graph(g, n_max_tracks = 3, padding = 10):
+
+    n_nodes = g.vcount()
+
+    ## -----------------
+    ## A. Track coordinates - Y-axis
+    ## -----------------
+
+    # init `node_track` variable - default 'source' and 'tank': 0
+    y_node_track = np.zeros(n_nodes)
+
+    # keeps track of last node position in each track of the Y-axis in order to avoid overlap between features
+    #y_tracks = [0, 0, 0]
+    y_tracks = np.zeros(n_max_tracks)
+
+    # loop over nodes in genomic_region; associate each node with a track that avoids overlaps
+    for ii, node in enumerate(g.vs[1:-1]):
+
+        # left bottom x-position
+        x_start = node.attributes()['start']
+        # right bottom x-position
+        x_end = node.attributes()['end']
+
+        track_idx = 0
+
+        # find empty y-track to avoid overlaps
+        while (y_tracks[track_idx] != 0) and (y_tracks[track_idx] + padding >= x_start):
+            track_idx += 1
+        # update current empty track
+        y_tracks[track_idx] = x_end
+
+        # associate each node with a track that avoids overlaps
+        y_node_track[ii + 1] = track_idx
+
+    ## --------------------
+    ## B. Genomic coordinates - X-axis
+    ## --------------------
+
+    log_coords = True
+
+    # exclude: 'source', 'tank' nodes
+    genomic_coords_start = np.array(g.vs['start'][1:-1])
+
+    if (log_coords):
+
+        # compress big distances between features - with log()
+        log_coords_diff_start = np.log(genomic_coords_start[1:] - genomic_coords_start[:-1])
+
+        # add first element
+        log_coords_diff_start = np.concatenate([[0], log_coords_diff_start], axis=0)
+
+        # compute coords by adding
+        scaled_genomic_coords = np.cumsum(log_coords_diff_start)
+
+    else:
+        # do NOT transform coords
+        scaled_genomic_coords = genomic_coords_start
+
+    min_coord = min(scaled_genomic_coords)
+    max_coord = max(scaled_genomic_coords)
+    shift = (2 * max_coord) / n_nodes
+
+    # add: 'source', 'tank' coords
+    scaled_genomic_coords =  np.concatenate([[min_coord - shift], scaled_genomic_coords, [max_coord + shift]], axis=0)
+
+    # transform to: [0, 1] interval
+    scale_coords = colors.Normalize(vmin=min(scaled_genomic_coords), vmax=max(scaled_genomic_coords))
+    scaled_genomic_coords = scale_coords(scaled_genomic_coords)
+
+    layout = list(zip(scaled_genomic_coords, y_node_track))
+
+    return layout
+
+
+def my_layout_splice_graph(g):
+
+    # get `tree` layout
+    layout = g.layout("tree")
+    y_coord = max([ss[1] for ss in layout])
+    # center tank
+    layout[-1][0] = 0
+
+    # exclude: 'source', 'tank' nodes
+    genomic_coords = np.array(g.vs['start'][1:-1])
+
+    # compress big gaps
+    log_coords_diff = np.log(genomic_coords[1:] - genomic_coords[:-1])
+    # add first element
+    log_coords_diff = np.concatenate([[0], log_coords_diff], axis=0)
+
+    scaled_genomic_coords = np.cumsum(log_coords_diff)
+
+    max_coord = max(scaled_genomic_coords)
+    shift = (2 * max_coord) / len(g.vcount())
+
+    # add: 'source', 'tank' coords
+    scaled_genomic_coords =  np.concatenate([[-shift], scaled_genomic_coords, [ max_coord + shift]], axis=0)
+
+    # transform to: [0, 1] interval
+    scale_coords = colors.Normalize(vmin=min(scaled_genomic_coords),vmax=max(scaled_genomic_coords))
+    scaled_genomic_coords = scale_coords(scaled_genomic_coords) * y_coord
+
+    splice_graph_layout = [[ll[0], scaled_genomic_coords[ii], ] for ii, ll in enumerate(layout)]
+    
+    return splice_graph_layout
+
+
+def old_my_layout_splice_graph(g):
     
     # get `tree` layout
     layout = g.layout("tree")
@@ -89,14 +199,14 @@ def old_layout_splice_graph(g):
     # center tank
     layout[-1][0] = 0
 
-    # exclude: 'sink', 'tank' nodes
+    # exclude: 'source', 'tank' nodes
     min_coord = min(g.vs['start'][1:-1])
     max_coord = max(g.vs['start'][1:-1])
     length = max_coord - min_coord + 1
-    shift = (2 * length) / len(node_set_df)
+    shift = (2 * length) / len(g.vcount())
 
     scaled_genomic_coords = g.vs['start']
-    # modify: 'sink', 'tank' nodes
+    # modify: 'source', 'tank' nodes
     scaled_genomic_coords[0] = min_coord - shift
     scaled_genomic_coords[-1] = max_coord + shift
     
